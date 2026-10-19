@@ -58,6 +58,18 @@ def test_launcher_passes_normal_cli_help() -> None:
     assert "--source" in help_text
 
 
+def test_windows_launchers_forward_to_the_project_environment() -> None:
+    launcher = (ROOT / "ziv.ps1").read_text(encoding="utf-8")
+    updater = (ROOT / "update.ps1").read_text(encoding="utf-8")
+
+    assert '.venv\\Scripts\\python.exe' in launcher
+    assert '& $Python -m ziv @ZivArgs' in launcher
+    assert '@("pull", "--ff-only", "origin"' in updater
+    assert '"lock", "--upgrade"' in updater
+    assert '"sync", "--all-extras"' in updater
+    assert '"-e", ".[all,dev]"' in updater
+
+
 def test_no_arguments_use_normal_cli_error_instead_of_opening_a_tui() -> None:
     result = _run_module()
     assert result.returncode == 1

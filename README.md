@@ -113,6 +113,7 @@ Fedora:        sudo dnf install ffmpeg python3 python3-pip
 openSUSE:      sudo zypper install ffmpeg python311 python311-pip
 Nix:           nix develop
 macOS:         brew install ffmpeg python
+Windows:       install FFmpeg and FFprobe, then add their folder to PATH
 ```
 
 ## Install and first-run setup
@@ -123,6 +124,22 @@ The recommended reproducible path uses `uv`:
 uv sync --extra all
 uv run ziv setup
 ```
+
+On Windows, open PowerShell in the repository folder and run the updater:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\update.ps1
+.\ziv.ps1 setup
+```
+
+`update.ps1` fast-forwards the checked-out branch, updates `uv.lock` and all
+optional Python extras when `uv` is installed, and otherwise updates the local
+`.venv` with pip. It refuses to overwrite uncommitted work. Use
+`.\update.ps1 -SkipGit` to keep the current source checkout, or
+`.\update.ps1 -Doctor` to update and run dependency diagnostics. The script
+does not install system packages such as FFmpeg; install those separately and
+make sure both `ffmpeg` and `ffprobe` are on `PATH`.
 
 The standard virtual-environment path is also supported:
 
@@ -163,9 +180,10 @@ repeated `--set KEY=VALUE` options. Installation itself never prompts.
 `.env` is written atomically with owner-only permissions where supported.
 Never commit `.env`, `.ig_session`, cookie files, or `.ziv-state`.
 
-## Ziv command and launcher
+## Ziv command and launchers
 
-The public command is `ziv`. The one canonical Linux launcher is `ziv.sh`:
+The public command is `ziv`. Use `ziv.sh` on Linux/macOS or `ziv.ps1` in
+PowerShell on Windows:
 
 ```bash
 ./ziv.sh --help                  # normal CLI help
@@ -184,6 +202,16 @@ The public command is `ziv`. The one canonical Linux launcher is `ziv.sh`:
 ./ziv.sh queue                   # show queue status
 ```
 
+The equivalent Windows commands are:
+
+```powershell
+.\ziv.ps1 --help
+.\ziv.ps1 make video.mp4
+.\ziv.ps1 parts story.mp4
+.\ziv.ps1 doctor
+.\ziv.ps1 queue
+```
+
 With the project installed in the active virtual environment, the same
 workflows are available as `ziv`, for example `ziv make video.mp4`. Arguments
 that are not one of the named workflows are forwarded to the existing
@@ -191,9 +219,10 @@ flag-based pipeline, so commands such as `ziv --links --no-post` and
 `ziv --dry-run video.mp4` retain their current behavior. `ziv --help` is the
 main CLI reference.
 
-There is intentionally only one shell launcher. The old shell and Windows
-launchers were removed; use `ziv` or `ziv.sh` instead. The `ziv` package owns
-the public commands and the workflow implementation.
+The launchers only select the project virtual environment and forward arguments
+to `python -m ziv`; the `ziv` package owns the public commands and workflow
+implementation. The Windows updater is separate so normal CLI commands never
+silently pull code or modify dependencies.
 
 ## Make clips
 
@@ -632,6 +661,8 @@ ziv completion powershell           # PowerShell output
 - `ziv/core/queue.py` - durable Instagram-only queue and review holds
 - `ziv/platforms/instagram.py` - login and Reel upload
 - `ziv.sh` - the one canonical Linux CLI launcher
+- `ziv.ps1` - the Windows PowerShell CLI launcher
+- `update.ps1` - the Windows source and dependency updater
 - `ziv/` - the sole application package
 - `flake.nix` - optional Nix development shell with Python, uv, and FFmpeg
 - `.github/workflows/tests.yml` - native GitHub Actions checks without Docker

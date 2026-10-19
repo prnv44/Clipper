@@ -7,6 +7,7 @@
 - Added Bash, Zsh, Fish, and PowerShell completion generation.
 - Added reproducible `uv.lock` packaging metadata and MIT licensing.
 - Added contributor, security, and code-of-conduct documentation.
+- Added Windows PowerShell launch and update scripts with native CI coverage.
 
 ## 1.0.0
 

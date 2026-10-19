@@ -27,3 +27,32 @@ jobs:
         run: bash -n ziv.sh
       - name: Build distributions
         run: python -m build
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package and development tools
+        shell: pwsh
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[all,dev]"
+      - name: Test
+        shell: pwsh
+        run: python -m pytest -q
+      - name: Parse PowerShell launchers
+        shell: pwsh
+        run: |
+          $files = @("ziv.ps1", "update.ps1")
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $pwd $file), [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+            }
+          }
