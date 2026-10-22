@@ -1,7 +1,0 @@
-include LICENSE
-include README.md
-include uv.lock
-recursive-include ziv *.py *.md
-prune tests
-global-exclude __pycache__
-global-exclude *.py[cod]

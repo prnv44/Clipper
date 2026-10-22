@@ -251,36 +251,10 @@ render state are kept in `.ziv-state/` so interrupted work can resume safely.
 - Source files are never overwritten by setup.
 - Corrupt queue state is not silently replaced with an empty queue.
 
-## Development
-
-The project uses `uv.lock` for reproducible dependencies:
+## Checks
 
 ```bash
 uv sync --locked --extra all --extra dev
 uv run python -m pytest -q
 python -m compileall -q ziv tests
-bash -n setup.sh
-bash -n ziv.sh
-git diff --check
 ```
-
-The default test suite is offline. Integration tests that need media tools are
-opt-in.
-
-## Project layout
-
-```text
-setup.sh / setup.ps1       one-time dependency setup
-ziv.sh / ziv.ps1           runtime launchers
-ziv/cli.py                 public commands
-ziv/core/                  download, discovery, rendering, queueing
-ziv/parts/                 chronological story-part workflow
-channels.txt               channel input file
-links.txt                  video/path input file
-.env.example               configuration reference
-uv.lock                    locked Python dependencies
-tests/                     offline contributor tests
-```
-
-Ziv is MIT licensed. See `SECURITY.md`, `CONTRIBUTING.md`, and
-`CODE_OF_CONDUCT.md` for project policies.
