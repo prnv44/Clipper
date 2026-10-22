@@ -5,19 +5,12 @@ safe for users who run the tool without credentials.
 
 ## Development setup
 
-Use `uv` when available:
+Run the one-time setup script, then use the project-local environment:
 
 ```bash
-uv sync --extra dev
-make test
-```
-
-Or use a standard virtual environment:
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[all,dev]'
-make test
+./setup.sh --non-interactive
+uv sync --locked --extra all --extra dev
+.venv/bin/python -m pytest -q
 ```
 
 FFmpeg/FFprobe are required only for media integration tests and real renders.
@@ -30,8 +23,9 @@ Run:
 
 ```bash
 python -m compileall -q ziv tests
-make test
+.venv/bin/python -m pytest -q
 bash -n ziv.sh
+bash -n setup.sh
 git diff --check
 ```
 

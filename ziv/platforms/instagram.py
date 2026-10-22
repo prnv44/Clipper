@@ -45,7 +45,7 @@ def login(client=None, interactive_2fa: bool = True):
     try:
         from instagrapi import Client
     except ImportError:
-        print("[ig] instagrapi not installed. Run: pip install instagrapi",
+        print("[ig] instagrapi not installed. Run: uv sync --locked --extra all",
               file=sys.stderr)
         raise SystemExit(1)
 

@@ -20,19 +20,47 @@ def _pipeline(args: Sequence[str], *, prog: str = "ziv") -> int:
 
 
 def _make(args: Sequence[str]) -> int:
-    """Preserve make.sh's bounded channel/link behavior behind ``ziv make``."""
+    """Run the simple source-to-queue flow behind ``ziv make``.
+
+    With no arguments, discovery runs first when channels are configured and
+    the resulting links are processed in the same command. Direct video paths
+    retain the normal flag-based pipeline.
+    """
     if args:
         return _pipeline(["--no-post", *args])
 
-    if CHANNELS_FILE.is_file():
+    from .core.channels import parse_channels_file
+    from .core.downloader import parse_links_file
+
+    channel_entries = parse_channels_file(CHANNELS_FILE)
+    link_entries = parse_links_file(LINKS_FILE)
+    if not channel_entries and not link_entries:
+        print("[ziv] Nothing to make yet.")
+        print("[ziv] 1. Run `ziv setup` if you have not done so.")
+        print("[ziv] 2. Add a channel to channels.txt or a video/path to links.txt.")
+        print("[ziv] 3. Run `ziv make` again.")
+        return 1
+
+    if channel_entries:
+        try:
+            import yt_dlp  # noqa: F401 - discovery requires the optional package
+        except ImportError:
+            print(
+                "[ziv] yt-dlp is required for channel discovery. "
+                "Install it with: uv sync --locked --extra all",
+                file=sys.stderr,
+            )
+            return 2
         result = _pipeline(["--source"])
         if result:
             return result
-    if LINKS_FILE.is_file() and LINKS_FILE.stat().st_size:
+
+    # Discovery appends to links.txt, so always parse it again before making.
+    if parse_links_file(LINKS_FILE):
         return _pipeline(["--links", "--no-post"])
 
-    print("[ziv] Nothing to make. Add channels to channels.txt or a video/link to links.txt.")
-    return 1
+    print("[ziv] Discovery found no new videos to make.")
+    return 0
 
 
 def _post(args: Sequence[str]) -> int:

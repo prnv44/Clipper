@@ -377,7 +377,10 @@ def _fetch_channel_entries(url: str, scan: int = 0) -> list[dict]:
     try:
         import yt_dlp
     except ImportError:
-        raise RuntimeError("yt-dlp is required for channel discovery")
+        raise RuntimeError(
+            "yt-dlp is required for channel discovery. "
+            "Install it with: uv sync --locked --extra all"
+        )
     opts = {"skip_download": True, "quiet": True, "no_warnings": True,
             "ignoreerrors": True, "extract_flat": "in_playlist", **yt_dlp_auth_opts()}
     if scan > 0:

@@ -83,7 +83,7 @@ def _get_model():
         try:
             from faster_whisper import WhisperModel
         except ImportError as exc:
-            print("[subs] faster-whisper not installed. Run: pip install faster-whisper",
+            print("[subs] faster-whisper not installed. Run: uv sync --locked --extra all",
                   file=sys.stderr)
             raise SystemExit(1) from exc
         print(f"[subs] Loading whisper '{WHISPER_MODEL}' ({WHISPER_COMPUTE})...")

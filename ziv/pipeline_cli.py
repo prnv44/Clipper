@@ -358,7 +358,7 @@ def _make_has_capacity(args) -> bool:
 def ingest_links(args) -> None:
     links_path = Path(args.links or LINKS_FILE)
     if not links_path.exists():
-        print(f"[links] {links_path} not found. See links.example.txt.", file=sys.stderr)
+        print(f"[links] {links_path} not found. Run `ziv setup` to create it.", file=sys.stderr)
         return
     entries = parse_links_file(links_path)
     if not entries:
@@ -492,6 +492,15 @@ def _main(argv: list[str] | None = None, *, prog: str = "ziv") -> int:
         return check_gemini()
     if args.source:
         from .core.channels import scan_channels
+        try:
+            import yt_dlp  # noqa: F401 - channel discovery requires this package
+        except ImportError:
+            print(
+                "[source] yt-dlp is required for channel discovery. "
+                "Install it with: uv sync --locked --extra all",
+                file=sys.stderr,
+            )
+            return 2
         state = load_queue()
         scan_channels(CHANNELS_FILE, Path(args.links or LINKS_FILE),
                       pending_render_count=len(state.get("pending", {})))

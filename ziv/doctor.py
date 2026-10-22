@@ -18,7 +18,6 @@ class PlatformInfo:
     family: str
     label: str
     hints: tuple[str, ...]
-    nix_available: bool = False
 
 
 @dataclass(frozen=True)
@@ -47,15 +46,6 @@ def _os_release() -> dict[str, str]:
     return values
 
 
-def _nix_present() -> bool:
-    return bool(
-        shutil.which("nix")
-        or os.environ.get("NIX_PATH")
-        or os.environ.get("IN_NIX_SHELL")
-        or Path("/nix/store").is_dir()
-    )
-
-
 def detect_platform() -> PlatformInfo:
     """Detect supported host families without invoking a package manager."""
 
@@ -66,9 +56,8 @@ def detect_platform() -> PlatformInfo:
             f"macOS {platform_module.mac_ver()[0] or 'unknown version'}",
             (
                 "brew install ffmpeg python",
-                "uv sync --extra all  # or: python -m pip install -e '.[all]'",
+                "uv sync --locked --extra all",
             ),
-            nix_available=_nix_present(),
         )
 
     if system != "Linux":
@@ -77,35 +66,22 @@ def detect_platform() -> PlatformInfo:
             system or "Unknown operating system",
             (
                 "Install FFmpeg (including ffprobe) with your operating system's package manager.",
-                "uv sync --extra all  # or: python -m pip install -e '.[all]'",
+                "uv sync --locked --extra all",
             ),
-            nix_available=_nix_present(),
         )
 
     release = _os_release()
     distro_id = release.get("ID", "").lower()
     id_like = set(release.get("ID_LIKE", "").lower().split())
     pretty = release.get("PRETTY_NAME") or distro_id or "Linux"
-    nix = distro_id in {"nix", "nixos"} or "nixos" in id_like
-    if nix:
-        return PlatformInfo(
-            "nix",
-            pretty,
-            (
-                "nix profile install nixpkgs#ffmpeg nixpkgs#python3",
-                "uv sync --extra all  # or: python -m pip install -e '.[all]'",
-            ),
-            nix_available=True,
-        )
     if distro_id in {"debian", "ubuntu", "linuxmint", "pop"} or "debian" in id_like:
         return PlatformInfo(
             "debian",
             pretty,
             (
                 "sudo apt install ffmpeg python3 python3-venv",
-                "uv sync --extra all  # or: python -m pip install -e '.[all]'",
+                "uv sync --locked --extra all",
             ),
-            nix_available=_nix_present(),
         )
     if distro_id in {"arch", "manjaro", "endeavouros"} or "arch" in id_like:
         return PlatformInfo(
@@ -113,9 +89,8 @@ def detect_platform() -> PlatformInfo:
             pretty,
             (
                 "sudo pacman -S ffmpeg python python-pip",
-                "uv sync --extra all  # or: python -m pip install -e '.[all]'",
+                "uv sync --locked --extra all",
             ),
-            nix_available=_nix_present(),
         )
     if distro_id in {"fedora", "rhel", "rocky", "almalinux"} or "fedora" in id_like:
         return PlatformInfo(
@@ -123,9 +98,8 @@ def detect_platform() -> PlatformInfo:
             pretty,
             (
                 "sudo dnf install ffmpeg python3 python3-pip",
-                "uv sync --extra all  # or: python -m pip install -e '.[all]'",
+                "uv sync --locked --extra all",
             ),
-            nix_available=_nix_present(),
         )
     if distro_id in {"opensuse", "opensuse-leap", "opensuse-tumbleweed", "sles"} \
             or "suse" in id_like:
@@ -134,18 +108,16 @@ def detect_platform() -> PlatformInfo:
             pretty,
             (
                 "sudo zypper install ffmpeg python311 python311-pip",
-                "uv sync --extra all  # or: python -m pip install -e '.[all]'",
+                "uv sync --locked --extra all",
             ),
-            nix_available=_nix_present(),
         )
     return PlatformInfo(
         "unknown",
         pretty,
         (
             "Install FFmpeg (including ffprobe) with your operating system's package manager.",
-            "uv sync --extra all  # or: python -m pip install -e '.[all]'",
+            "uv sync --locked --extra all",
         ),
-        nix_available=_nix_present(),
     )
 
 
@@ -227,9 +199,6 @@ def run_doctor() -> int:
     print("Install hints (shown only; no package-manager commands were run):")
     for hint in info.hints:
         print(f"  {hint}")
-    if info.nix_available and info.family != "nix":
-        print("  Nix detected: nix profile install nixpkgs#ffmpeg nixpkgs#python3")
-
     return 1 if any(not check.ok and check.required for check in checks) else 0
 
 

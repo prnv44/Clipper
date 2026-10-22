@@ -28,6 +28,7 @@ from .settings import (
 )
 from .storage import (
     SetupStorageError,
+    initialize_source_files,
     read_env,
     settings_for_display,
     validate_cookie_file_metadata,
@@ -380,7 +381,10 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "ziv setup") -> int:
         existing = _existing_values(path)
         if args.show:
             return _show(path)
-        if existing.get("ZIV_SETUP_COMPLETE") == "1" and not args.redo and not args.non_interactive:
+        if existing.get("ZIV_SETUP_COMPLETE") == "1" and not (
+            args.redo or args.non_interactive or args.overrides or args.profile
+        ):
+            initialize_source_files(existing)
             print("Ziv is already configured. Use `ziv setup --redo` to run setup again.")
             return _show(path)
 
@@ -400,6 +404,7 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "ziv setup") -> int:
                 print("Setup cancelled; no configuration was saved.")
                 return 1
         saved = write_env({**existing, **values}, path)
+        initialize_source_files(values)
         print(f"Saved Ziv configuration to {saved} (owner-only permissions requested).")
         return 0
     except (SetupStorageError, SetupValidationError, SetupInteractionError) as exc:

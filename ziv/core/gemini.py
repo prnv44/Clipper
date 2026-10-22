@@ -160,7 +160,7 @@ class GeminiNotConfigured(RuntimeError):
 
 def check_available() -> None:
     if not _load_genai():
-        print("[gemini] google-genai not installed. Run: pip install google-genai",
+        print("[gemini] google-genai not installed. Run: uv sync --locked --extra all",
               file=sys.stderr)
         raise SystemExit(1)
     if not GEMINI_API_KEY:

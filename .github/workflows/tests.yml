@@ -18,11 +18,11 @@ jobs:
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg
       - name: Install package and development tools
-        run: python -m pip install --upgrade pip && python -m pip install -e '.[all,dev]'
+        run: python -m pip install uv && uv sync --locked --extra all --extra dev
       - name: Compile
         run: python -m compileall -q ziv tests
       - name: Test
-        run: make test PYTHON=python
+        run: python -m pytest -q
       - name: Shell syntax
         run: bash -n ziv.sh
       - name: Build distributions
@@ -35,16 +35,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install package and development tools
-        shell: pwsh
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[all,dev]"
-      - name: Test
-        shell: pwsh
-        run: python -m pytest -q
       - name: Parse PowerShell launchers
         shell: pwsh
         run: |
-          $files = @("ziv.ps1", "update.ps1")
+          $files = @("ziv.ps1", "setup.ps1")
           foreach ($file in $files) {
             $tokens = $null
             $errors = $null
@@ -56,3 +50,9 @@ jobs:
               exit 1
             }
           }
+      - name: Install package and development tools
+        shell: pwsh
+        run: python -m pip install uv; uv sync --locked --extra all --extra dev
+      - name: Test
+        shell: pwsh
+        run: python -m pytest -q

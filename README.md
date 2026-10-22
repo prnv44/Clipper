@@ -92,93 +92,73 @@ Keep `AUTO_MAX_CLIPS` generous: it limits discovery, while `QUEUE_MAX_PENDING`
 limits how much is rendered and queued at a time. A small posting queue can
 still support ten good clips from a source over several make/post runs.
 
-## Requirements
+## Setup
 
-- Python 3.10+ (3.11 is pinned for the repository development environment)
-- FFmpeg and FFprobe on `PATH` for rendering
-- Gemini is configured by `ziv setup` when AI selection is needed
-- yt-dlp is installed by the `download` or `all` extra for YouTube links
-- Instagram is optional and installed by the `instagram` or `all` extra
+Run one setup script. It installs FFmpeg, installs or uses `uv`, creates
+`.venv`, installs the locked `.[all]` dependencies, and starts the Ziv setup
+wizard.
 
-Ziv does not assume one Linux distribution and never runs a package manager
-for you. `ziv doctor` detects the host and prints a suitable hint for Debian,
-Arch, Fedora, openSUSE, Nix, macOS, Windows, or an unknown system.
-
-Examples of the system dependency step:
-
-```text
-Debian/Ubuntu:  sudo apt install ffmpeg python3 python3-venv
-Arch:          sudo pacman -S ffmpeg python python-pip
-Fedora:        sudo dnf install ffmpeg python3 python3-pip
-openSUSE:      sudo zypper install ffmpeg python311 python311-pip
-Nix:           nix develop
-macOS:         brew install ffmpeg python
-Windows:       install FFmpeg and FFprobe, then add their folder to PATH
-```
-
-## Install and first-run setup
-
-The recommended reproducible path uses `uv`:
+### Linux / macOS
 
 ```bash
-uv sync --extra all
-uv run ziv setup
+chmod +x setup.sh ziv.sh
+./setup.sh
 ```
 
-On Windows, open PowerShell in the repository folder and run the updater:
+On Ubuntu/Debian, the script uses `apt`; on Fedora it uses `dnf`; on Arch it
+uses `pacman`; on macOS it uses Homebrew. It may ask for your administrator
+password to install FFmpeg and curl.
+
+### Windows PowerShell
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\update.ps1
-.\ziv.ps1 setup
+.\setup.ps1
 ```
 
-`update.ps1` fast-forwards the checked-out branch, updates `uv.lock` and all
-optional Python extras when `uv` is installed, and otherwise updates the local
-`.venv` with pip. It refuses to overwrite uncommitted work. Use
-`.\update.ps1 -SkipGit` to keep the current source checkout, or
-`.\update.ps1 -Doctor` to update and run dependency diagnostics. The script
-does not install system packages such as FFmpeg; install those separately and
-make sure both `ffmpeg` and `ffprobe` are on `PATH`.
+The Windows script uses `winget` to install FFmpeg when it is missing. `uv`
+provides Python 3.11 and installs every project dependency, including
+`yt-dlp`.
 
-The standard virtual-environment path is also supported:
+### What setup does
+
+`setup` detects your CPU, memory, operating system, GPU hints, and FFmpeg
+availability. It recommends a safe processing profile and asks for:
+
+- Gemini model and API key;
+- YouTube cookie method, if anonymous access is not enough;
+- quality, subtitles, Whisper, output, queue, and cleanup settings; and
+- optional Instagram username, password, and 2FA code.
+
+The setup script installs system dependencies; the wizard does not read cookie
+contents, automate a login or CAPTCHA, or upload anything. It stores local
+configuration in `.env` with secrets hidden from display. Never commit `.env`, cookies,
+`.ig_session`, output media, or `.ziv-state`.
+
+After a successful setup, Ziv creates these files if they are missing:
+
+```text
+channels.txt    # YouTube channels for automatic discovery
+links.txt       # YouTube URLs or local video paths
+```
+
+They contain only commented instructions and examples. Existing files are
+never overwritten, so rerunning setup is safe.
+
+Check the installation with:
+
+```powershell
+.\ziv.ps1 doctor
+```
+
+or on Linux/macOS:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[all]'
-.venv/bin/ziv setup
+./ziv.sh doctor
 ```
 
-`ziv setup` asks for the complete local configuration in one pass:
-
-- adaptive hardware profile and the exact settings it will apply
-- Gemini key, model, fallbacks, pacing, and selection budgets
-- anonymous, browser-cookie, or external YouTube cookie-file access
-- Whisper, subtitle, quality, paths, queue, posting, and cleanup settings
-- optional Instagram username, hidden password, and 2FA code
-
-The **recommended** profile is selected by default from detected CPU threads,
-RAM, GPU hints, and FFmpeg capabilities. The wizard prints the full proposed
-configuration before saving. It does not install packages, read cookie
-contents, automate login/CAPTCHA, or upload anything.
-If a GPU or hardware-acceleration backend is detected, Ziv reports it but keeps
-the CPU renderer unless that backend is explicitly supported by the active
-pipeline; it will not claim GPU acceleration that it does not use.
-
-Useful setup commands:
-
-```bash
-ziv setup                 # complete interactive setup
-ziv setup --redo          # run it again
-ziv setup --show          # show settings with secrets redacted
-ziv setup --non-interactive --profile adaptive
-ziv doctor                # local dependencies and platform hints
-```
-
-For CI or headless machines, use `ZIV_SETUP_*` environment variables or
-repeated `--set KEY=VALUE` options. Installation itself never prompts.
-`.env` is written atomically with owner-only permissions where supported.
-Never commit `.env`, `.ig_session`, cookie files, or `.ziv-state`.
+For headless setup, pass `--non-interactive` and use `ZIV_SETUP_*` variables
+or repeated `--set KEY=VALUE` options.
 
 ## Ziv command and launchers
 
@@ -221,8 +201,20 @@ main CLI reference.
 
 The launchers only select the project virtual environment and forward arguments
 to `python -m ziv`; the `ziv` package owns the public commands and workflow
-implementation. The Windows updater is separate so normal CLI commands never
-silently pull code or modify dependencies.
+implementation.
+
+### Simple automatic flow
+
+1. Run setup once; it creates `channels.txt` and `links.txt`.
+2. Put YouTube channels in `channels.txt`, or video URLs/local paths in
+   `links.txt`.
+3. Run `./ziv.sh make` on Linux/macOS or `.\ziv.ps1 make` in PowerShell.
+
+With no arguments, `make` discovers unseen videos from configured channels,
+adds them to `links.txt`, then processes the pending links in the same run. It
+never posts to Instagram automatically. Use `post` separately when you are
+ready. If channel discovery is configured without `yt-dlp`, Ziv stops with an
+actionable installation message before making network requests.
 
 ## Make clips
 
@@ -321,7 +313,7 @@ a channel is extremely large and you deliberately want to cap metadata work.
 The ranking is still view-dominant, with light like/comment, topic-potential,
 and title-diversity signals. `CHANNEL_BACKLOG_MAX=20` prevents discovery from
 adding more than 20 active, unprocessed links; existing links are not deleted
-when you lower that setting. Copy `channels.example.txt` for the format.
+when you lower that setting. `ziv setup` creates `channels.txt` with the format.
 
 Direct link mode remains available:
 
@@ -329,8 +321,8 @@ Direct link mode remains available:
 .venv/bin/ziv --links --no-post
 ```
 
-Each link is marked `# DONE` after successful processing. Copy
-`links.example.txt` for per-link settings such as `clips=5`, `min=10`, and
+Each link is marked `# DONE` after successful processing. `links.txt` includes
+commented examples for per-link settings such as `clips=5`, `min=10`, and
 `max=45`.
 
 Useful options:
@@ -609,11 +601,11 @@ cookies should come from the same browser/IP session that passed any CAPTCHA.
 Fast offline checks:
 
 ```bash
-make test
+.venv/bin/python -m pytest -q
 ```
 
-`make test` runs the checked-in suite without installing packages or contacting
-the network. Set `PYTHON=/path/to/python` when using a different environment.
+This runs the checked-in suite without installing packages or contacting the
+network. Use the Python executable from your project environment.
 
 The `tests/` directory is source-repository code for contributors and CI. It
 is intentionally not included in the built runtime wheel or sdist.
@@ -622,7 +614,7 @@ The optional synthetic FFmpeg tests verify single-window clips and multi-range
 story-part assembly, including subtitles, labels, audio, and render resume:
 
 ```bash
-uv run pytest -q --run-integration
+.venv/bin/python -m pytest -q --run-integration
 ```
 
 A real Instagram upload requires credentials and network access and is not run
@@ -660,9 +652,10 @@ ziv completion powershell           # PowerShell output
 - `ziv/core/profiling.py` - opt-in stage timing metrics
 - `ziv/core/queue.py` - durable Instagram-only queue and review holds
 - `ziv/platforms/instagram.py` - login and Reel upload
+- `setup.sh` - one-time Linux/macOS dependency setup
+- `setup.ps1` - one-time Windows dependency setup
 - `ziv.sh` - the one canonical Linux CLI launcher
 - `ziv.ps1` - the Windows PowerShell CLI launcher
-- `update.ps1` - the Windows source and dependency updater
 - `ziv/` - the sole application package
-- `flake.nix` - optional Nix development shell with Python, uv, and FFmpeg
+- `uv.lock` - pinned Python dependencies for reproducible installs
 - `.github/workflows/tests.yml` - native GitHub Actions checks without Docker

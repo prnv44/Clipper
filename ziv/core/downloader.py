@@ -482,7 +482,7 @@ def expand_and_download(entry: dict, limits: dict) -> tuple[list[dict], bool]:
         import yt_dlp
     except ImportError:
         print("[links] yt-dlp not installed — cannot handle links. "
-              "Run: pip install yt-dlp", file=sys.stderr)
+              "Run: uv sync --locked --extra all", file=sys.stderr)
         return videos, False
 
     ydl_opts = {
