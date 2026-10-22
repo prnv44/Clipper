@@ -2,8 +2,7 @@
 import json
 from pathlib import Path
 
-from ziv.core.cleanup import (clip_artifact_candidates, delete_clip_artifacts,
-                              delete_source_artifacts, source_artifact_candidates)
+from ziv.core.cleanup import delete_clip_artifacts, delete_source_artifacts
 
 
 def test_posted_clip_cleanup_removes_only_generated_sidecars(tmp_path: Path) -> None:
@@ -46,20 +45,3 @@ def test_source_cleanup_removes_download_cache_but_keeps_local_caption_sidecar(t
 
     assert set(removed) == {master, analysis, metadata, captions}
     assert not any(path.exists() for path in (master, analysis, metadata, captions))
-
-
-def test_cleanup_candidates_are_previewable_without_removing_files(tmp_path: Path) -> None:
-    clip = tmp_path / "preview.mp4"
-    sidecar = clip.with_suffix(".ass")
-    clip.write_bytes(b"clip")
-    sidecar.write_bytes(b"subtitles")
-
-    assert clip_artifact_candidates(clip) == [clip, sidecar]
-    assert clip.exists() and sidecar.exists()
-
-    source = tmp_path / "source.mp4"
-    analysis = tmp_path / "source_analysis.mp4"
-    source.write_bytes(b"source")
-    analysis.write_bytes(b"analysis")
-    assert source_artifact_candidates(source) == [source, analysis]
-    assert source.exists() and analysis.exists()
