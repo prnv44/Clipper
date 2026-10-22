@@ -16,7 +16,8 @@ as_root() {
 install_system_tools() {
     case "$(uname -s)" in
         Darwin)
-            if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
+            if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1 &&
+                command -v curl >/dev/null 2>&1; then
                 return
             fi
             command -v brew >/dev/null 2>&1 || {
@@ -26,6 +27,10 @@ install_system_tools() {
             brew install ffmpeg
             ;;
         Linux)
+            if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1 &&
+                command -v curl >/dev/null 2>&1; then
+                return
+            fi
             if command -v apt-get >/dev/null 2>&1; then
                 as_root apt-get update
                 as_root apt-get install -y ffmpeg curl

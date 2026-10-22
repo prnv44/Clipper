@@ -2,12 +2,9 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 from collections.abc import Sequence
-from pathlib import Path
 
 from . import pipeline_cli
-from .catalog import CatalogError, SourceCatalog
 from .config import CHANNELS_FILE, LINKS_FILE
 
 
@@ -81,104 +78,49 @@ def _parts(args: Sequence[str], *, number_only: bool = False) -> int:
     return parts_cli.main(forwarded, prog="ziv-parts")
 
 
-def _catalog() -> SourceCatalog:
-    catalog = SourceCatalog()
-    # Import is explicit and idempotent: the TUI can show the files users
-    # already maintain without silently rewriting them.
-    catalog.import_files()
-    return catalog
+def _source_file(kind: str) -> int:
+    """Show the configured text-file sources without creating another database."""
+    if kind == "link":
+        from .core.downloader import parse_links_file
 
+        path = LINKS_FILE
+        entries = parse_links_file(path)
+        label = "links"
+    else:
+        from .core.channels import parse_channels_file
 
-def _add_source(args: Sequence[str]) -> int:
-    if len(args) < 3 or args[0] not in {"link", "channel"}:
-        print("Usage: ziv add link|channel NAME URL_OR_PATH [key=value ...]", file=sys.stderr)
-        return 1
-    kind, name, target = args[:3]
-    options = {}
-    for token in args[3:]:
-        key, separator, value = token.partition("=")
-        if separator and key and value:
-            options[key] = value
-    catalog = SourceCatalog()
-    try:
-        record = (catalog.add_link(name, target, options) if kind == "link"
-                  else catalog.add_channel(name, target, options))
-    except (CatalogError, OSError, ValueError) as exc:
-        print(f"[ziv] {exc}", file=sys.stderr)
-        return 2
-    try:
-        catalog.materialize(kind, name)
-    except (CatalogError, OSError, ValueError) as exc:
-        print(f"[ziv] {exc}", file=sys.stderr)
-        return 2
-    print(f"[ziv] Added {record['kind']} '{record['name']}' -> {record['target']}")
-    return 0
+        path = CHANNELS_FILE
+        entries = parse_channels_file(path)
+        label = "channels"
 
-
-def _list_sources(kind: str | None = None) -> int:
-    try:
-        records = _catalog().statuses(kind)
-    except (CatalogError, OSError, ValueError) as exc:
-        print(f"[ziv] {exc}", file=sys.stderr)
-        return 2
-    if not records:
-        print("[ziv] No sources in the catalog. Use 'ziv add link' or 'ziv add channel'.")
+    print(f"[ziv] {label}: {path}")
+    if not path.exists():
+        print(f"[ziv] File does not exist yet. Run `ziv setup` to create it.")
         return 0
-    for record in records:
-        print(f"{record['kind']:<7} {record['status']:<8} "
-              f"{record['name']}: {record['target']}")
+    if not entries:
+        print(f"[ziv] No active {label} configured.")
+        return 0
+
+    print(f"[ziv] {len(entries)} active {label}:")
+    for entry in entries:
+        target = entry.get("url") or entry.get("target", "")
+        options = []
+        if kind == "link":
+            for key, display in (("clips", "clips"), ("min_len", "min"),
+                                 ("max_len", "max"), ("sub_style", "style")):
+                value = entry.get(key)
+                if value is not None:
+                    options.append(f"{display}={value}")
+            if entry.get("no_subs") is not None:
+                options.append(f"subs={'false' if entry['no_subs'] else 'true'}")
+        else:
+            for key in ("limit", "min_views", "scan"):
+                value = entry.get(key)
+                if value is not None:
+                    options.append(f"{key}={value}")
+        suffix = f" | {' '.join(options)}" if options else ""
+        print(f"  {target}{suffix}")
     return 0
-
-
-def _run_source(args: Sequence[str]) -> int:
-    if len(args) != 2 or args[0] not in {"link", "channel"}:
-        print("Usage: ziv run-source link|channel NAME", file=sys.stderr)
-        return 1
-    kind, name = args
-    try:
-        record = SourceCatalog().get(kind, name)
-    except (CatalogError, OSError, ValueError) as exc:
-        print(f"[ziv] {exc}", file=sys.stderr)
-        return 2
-    if kind == "channel":
-        from .core.channels import scan_channels
-
-        state_dir = SourceCatalog().path.parent
-        state_dir.mkdir(parents=True, exist_ok=True)
-        temporary = tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", prefix="ziv-channel-", suffix=".txt",
-            dir=state_dir, delete=False)
-        path = Path(temporary.name)
-        try:
-            options = " ".join(f"{key}={value}" for key, value
-                               in record.get("options", {}).items())
-            temporary.write(record["target"])
-            temporary.write(f" | {options}" if options else "")
-            temporary.write("\n")
-            temporary.flush()
-            temporary.close()
-            scan_channels(path, LINKS_FILE)
-            return 0
-        finally:
-            path.unlink(missing_ok=True)
-    target = record["target"]
-    if target.lower().startswith(("http://", "https://")):
-        state_dir = SourceCatalog().path.parent
-        state_dir.mkdir(parents=True, exist_ok=True)
-        temporary = tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", prefix="ziv-source-", suffix=".txt",
-            dir=state_dir, delete=False)
-        path = Path(temporary.name)
-        try:
-            options = " ".join(f"{key}={value}" for key, value
-                               in record.get("options", {}).items())
-            temporary.write(target + (f" | {options}" if options else "") + "\n")
-            temporary.flush()
-            temporary.close()
-            return _pipeline(["--links", str(path), "--no-post"])
-        finally:
-            path.unlink(missing_ok=True)
-    return _pipeline([target, "--no-post"])
 
 
 def _doctor(args: Sequence[str]) -> int:
@@ -220,30 +162,28 @@ def _complete(args: Sequence[str]) -> int:
     return complete_command(args)
 
 
-def _catalog_command(command: str, args: Sequence[str]) -> int:
-    if command == "add":
-        return _add_source(args)
-    if command in {"sources", "catalog", "links", "channels"}:
-        kind = {"links": "link", "channels": "channel"}.get(command)
-        return _list_sources(kind)
-    if command == "import":
-        report = SourceCatalog().import_files()
-        print(f"[ziv] Imported {report['added']} source(s); {report['skipped']} skipped")
-        return 0
+def _file_source_command(command: str, args: Sequence[str] = ()) -> int:
+    if command == "links":
+        return _source_file("link")
+    if command == "channels":
+        return _source_file("channel")
     if command == "doctor":
         return _doctor(args)
+    if command in {"add", "catalog", "sources", "import", "run-source"}:
+        print(
+            "[ziv] Source management uses channels.txt and links.txt. "
+            "Edit those files directly.",
+            file=sys.stderr,
+        )
+        return 1
     return -1
 
 
 def _help() -> int:
     pipeline_cli.build_parser(prog="ziv").print_help()
     print("\nZiv commands:")
-    print("  ziv                         run the normal command-line interface")
-    print("  ziv add link NAME TARGET   add a named video source")
-    print("  ziv add channel NAME URL   add a named YouTube channel")
-    print("  ziv links|channels         list catalog entries")
-    print("  ziv import                 import links.txt and channels.txt")
-    print("  ziv run-source KIND NAME  run one catalog entry")
+    print("  ziv links                  show active entries from links.txt")
+    print("  ziv channels               show active entries from channels.txt")
     print("  ziv completion SHELL      print native bash/zsh/fish/PowerShell completion")
     print("  ziv doctor                check local dependencies and install hints")
     print("  ziv doctor youtube [URL]  validate cookies or probe YouTube")
@@ -269,9 +209,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _completion(rest)
     if command == "__complete":
         return _complete(rest)
-    catalog_result = _catalog_command(command, rest)
-    if catalog_result >= 0:
-        return catalog_result
+    source_result = _file_source_command(command, rest)
+    if source_result >= 0:
+        return source_result
     if command == "make":
         return _make(rest)
     if command == "parts":
@@ -280,8 +220,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _parts(rest, number_only=True)
     if command == "post":
         return _post(rest)
-    if command == "run-source":
-        return _run_source(rest)
     if command in {"source", "scan"}:
         return _pipeline(["--source", *rest])
     if command in {"queue", "queue-status"}:

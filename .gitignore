@@ -34,4 +34,3 @@ dist/
 *.lock
 *.channels.lock
 *.post.lock
-!requirements.lock

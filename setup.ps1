@@ -16,13 +16,28 @@ function Invoke-Checked {
     }
 }
 
+function Refresh-Path {
+    $machine = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $user = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($machine -or $user) {
+        $parts = @($machine, $user) | Where-Object { $_ }
+        $env:Path = $parts -join ";"
+    }
+}
+
 if (-not $SkipFfmpeg -and (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or
         -not (Get-Command ffprobe -ErrorAction SilentlyContinue))) {
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Invoke-Checked "winget" @("install", "--id", "Gyan.FFmpeg.Shared", "-e", "--accept-source-agreements", "--accept-package-agreements")
+        Refresh-Path
     } else {
         throw "FFmpeg/FFprobe are missing. Install FFmpeg or install winget, then rerun setup.ps1."
     }
+}
+
+if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or
+    -not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+    throw "FFmpeg/FFprobe are still not on PATH. Open a new PowerShell window and rerun setup.ps1."
 }
 
 $uvCommand = $null

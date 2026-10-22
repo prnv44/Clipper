@@ -30,19 +30,6 @@ def test_completion_candidates_cover_commands_and_value_choices() -> None:
     ]
 
 
-def test_completion_reads_only_mocked_catalog_names(monkeypatch) -> None:
-    class FakeCatalog:
-        def statuses(self, kind):
-            assert kind == "link"
-            return [{"name": "Interview"}, {"name": "archive"}]
-
-    monkeypatch.setattr(completion, "SourceCatalog", FakeCatalog)
-
-    assert completion.candidates(["ziv", "run-source", "link", "a"], 3) == [
-        "archive",
-    ]
-
-
 def test_completion_rejects_unknown_shell_without_external_access(capsys) -> None:
     assert cli.main(["completion", "tcsh"]) == 1
     assert "Usage: ziv completion" in capsys.readouterr().err

@@ -1,30 +1,17 @@
-"""Native shell completion for the public ``ziv`` command.
-
-The generated functions keep the shell-specific glue small and delegate the
-context-sensitive part to ``ziv __complete``.  That private entry point only
-reads local catalog state, so tab completion never imports a workflow or
-starts a network request.
-"""
+"""Native shell completion for the public ``ziv`` command."""
 from __future__ import annotations
 
 from collections.abc import Sequence
-
-from .catalog import CatalogError, SourceCatalog
-
 
 SHELLS = ("bash", "zsh", "fish", "powershell")
 
 COMMANDS = (
     "help",
     "completion",
+    "setup",
     "doctor",
-    "add",
-    "sources",
-    "catalog",
     "links",
     "channels",
-    "import",
-    "run-source",
     "make",
     "parts",
     "number-parts",
@@ -117,18 +104,6 @@ VALUE_CANDIDATES = {
     "--sub-style": ("hormozi", "clean", "yellow"),
 }
 
-_LINK_OPTIONS = ("clips=", "min=", "max=", "sub_style=", "no_subs=")
-_CHANNEL_OPTIONS = ("limit=", "min_views=", "scan=")
-
-
-def _catalog_names(kind: str) -> list[str]:
-    try:
-        records = SourceCatalog().statuses(kind)
-    except (CatalogError, OSError, ValueError):
-        return []
-    return sorted({str(record["name"]) for record in records if record.get("name")})
-
-
 def _matching(candidates: Sequence[str], current: str) -> list[str]:
     if not current:
         return list(dict.fromkeys(candidates))
@@ -136,16 +111,6 @@ def _matching(candidates: Sequence[str], current: str) -> list[str]:
     return list(dict.fromkeys(
         candidate for candidate in candidates if candidate.casefold().startswith(folded)
     ))
-
-
-def _source_kind_candidates(args_before: list[str], current: str) -> list[str]:
-    if not args_before:
-        return _matching(("link", "channel"), current)
-    if args_before[0] == "link":
-        return _matching(_catalog_names("link"), current)
-    if args_before[0] == "channel":
-        return _matching(_catalog_names("channel"), current)
-    return []
 
 
 def candidates(words: Sequence[str], index: int) -> list[str]:
@@ -168,23 +133,14 @@ def candidates(words: Sequence[str], index: int) -> list[str]:
         return _matching((*SHELLS, "--help"), current)
     if command == "doctor":
         return _matching(("dependencies", "deps", "youtube", "--help"), current)
-    if command == "add":
-        if len(before) == 1:
-            return _matching(("link", "channel"), current)
-        if before[1] in {"link", "channel"} and len(before) >= 4:
-            options = _LINK_OPTIONS if before[1] == "link" else _CHANNEL_OPTIONS
-            return _matching(options, current)
-        return []
-    if command == "run-source":
-        return _source_kind_candidates(before[1:], current)
     if command == "post":
         return _matching(("--due", "--post-due"), current)
     if command in {"parts", "number-parts", "number_only"}:
         if before[-1] in VALUE_FLAGS:
             return _matching(VALUE_CANDIDATES.get(before[-1], ()), current)
         return _matching(PARTS_FLAGS, current) if current.startswith("-") else []
-    if command in {"help", "sources", "catalog", "links", "channels", "import",
-                   "source", "scan", "queue", "queue-status", "styles"}:
+    if command in {"help", "setup", "links", "channels", "source", "scan",
+                   "queue", "queue-status", "styles"}:
         return []
 
     if before[-1] in VALUE_FLAGS:
@@ -264,7 +220,7 @@ def script(shell: str) -> str:
 
 
 def complete_command(args: Sequence[str]) -> int:
-    """Handle the private completion backend without exposing catalog targets."""
+    """Handle the private completion backend without starting workflows."""
 
     if len(args) < 2 or args[0] not in SHELLS:
         return 1
