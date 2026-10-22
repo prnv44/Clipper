@@ -36,6 +36,48 @@ def _unlink(path: Path, removed: list[Path]) -> None:
     removed.append(path)
 
 
+def _existing_removable(paths: list[Path]) -> list[Path]:
+    existing: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        if _can_remove(path):
+            existing.append(path)
+    return existing
+
+
+def clip_artifact_candidates(clip_path: Path) -> list[Path]:
+    """Return existing generated files that a posted clip cleanup may remove."""
+    clip_path = Path(clip_path)
+    return _existing_removable([
+        clip_path,
+        clip_path.with_suffix(".ass"),
+        clip_path.with_name(clip_path.stem + ".caption.txt"),
+        clip_path.with_name(clip_path.stem + "_cover.jpg"),
+    ])
+
+
+def source_artifact_candidates(video_path: Path) -> list[Path]:
+    """Return existing disposable files associated with a processed source."""
+    video_path = Path(video_path)
+    candidates = [video_path, video_path.with_name(video_path.stem + "_analysis.mp4")]
+    if video_path.parent.name == "downloads":
+        metadata_path = video_path.with_suffix(".json")
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            value = metadata.get("source_captions", "") if isinstance(metadata, dict) else ""
+            if value:
+                caption_path = Path(value)
+                if caption_path.parent == video_path.parent:
+                    candidates.append(caption_path)
+        except (OSError, ValueError, TypeError):
+            pass
+        candidates.append(metadata_path)
+    return _existing_removable(candidates)
+
+
 def delete_clip_artifacts(clip_path: Path, *, enabled: bool = DELETE_POSTED_CLIPS) -> list[Path]:
     """Remove a confirmed-post clip and its generated sidecars.
 
@@ -44,12 +86,9 @@ def delete_clip_artifacts(clip_path: Path, *, enabled: bool = DELETE_POSTED_CLIP
     """
     if not enabled:
         return []
-    clip_path = Path(clip_path)
     removed: list[Path] = []
-    _unlink(clip_path, removed)
-    _unlink(clip_path.with_suffix(".ass"), removed)
-    _unlink(clip_path.with_name(clip_path.stem + ".caption.txt"), removed)
-    _unlink(clip_path.with_name(clip_path.stem + "_cover.jpg"), removed)
+    for path in clip_artifact_candidates(clip_path):
+        _unlink(path, removed)
     return removed
 
 
@@ -57,26 +96,7 @@ def delete_source_artifacts(video_path: Path, *, enabled: bool = DELETE_SOURCE_A
     """Remove a successfully processed source and disposable download siblings."""
     if not enabled:
         return []
-    video_path = Path(video_path)
     removed: list[Path] = []
-    _unlink(video_path, removed)
-
-    # A downloaded source may have an analysis twin and metadata/caption cache.
-    # Local source sidecars are deliberately preserved because they may be
-    # independently useful to the user.
-    _unlink(video_path.with_name(video_path.stem + "_analysis.mp4"), removed)
-    if video_path.parent.name == "downloads":
-        metadata_path = video_path.with_suffix(".json")
-        caption_paths: list[Path] = []
-        try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            value = metadata.get("source_captions", "") if isinstance(metadata, dict) else ""
-            if value:
-                caption_paths.append(Path(value))
-        except (OSError, ValueError, TypeError):
-            pass
-        for caption_path in caption_paths:
-            if caption_path.parent == video_path.parent:
-                _unlink(caption_path, removed)
-        _unlink(metadata_path, removed)
+    for path in source_artifact_candidates(video_path):
+        _unlink(path, removed)
     return removed

@@ -97,8 +97,12 @@ Linux/macOS:
 ./ziv.sh status       # show sources, runtime, queue, and output
 ./ziv.sh links        # show active links.txt entries
 ./ziv.sh channels     # show active channels.txt entries
+./ziv.sh preview      # inspect pending work without changing files
 ./ziv.sh              # process pending links.txt entries
+./ziv.sh retry        # retry failed source-processing entries
 ./ziv.sh make         # discover channels, then process links.txt
+./ziv.sh open         # open output/ in the desktop file manager
+./ziv.sh cleanup      # preview removable confirmed artifacts
 ./ziv.sh parts video.mp4
 ./ziv.sh post         # post the queue when you are ready
 ```
@@ -110,7 +114,11 @@ Windows PowerShell:
 .\ziv.ps1 status
 .\ziv.ps1 links
 .\ziv.ps1 channels
+.\ziv.ps1 preview
 .\ziv.ps1 make
+.\ziv.ps1 retry
+.\ziv.ps1 open
+.\ziv.ps1 cleanup
 .\ziv.ps1 parts video.mp4
 .\ziv.ps1 post
 ```
@@ -135,7 +143,24 @@ Useful commands:
 ./ziv.sh doctor youtube
 ./ziv.sh styles
 ./ziv.sh completion bash
+./ziv.sh open path/to/a/clip.mp4
+./ziv.sh cleanup --apply       # delete after reviewing the preview
+# `clean` and `--yes` are aliases for the same explicit cleanup action.
+./ziv.sh clean --yes --posted
 ```
+
+`open` uses the host desktop opener and reports the path for manual opening when
+no opener is available. `cleanup` is preview-only by default. It lists generated
+files for confirmed posted clips; add `--sources` to include sources belonging
+to completed `links.txt` entries, and add `--apply` (or `--yes`) only after
+reviewing the preview. Queue history, manifests, `channels.txt`, and
+`links.txt` are kept.
+
+`preview` never downloads, renders, queues, or marks a source as done. Each
+processing run reports the current source and phase. If a source fails, its
+original line stays unchanged and the failure is saved below `.ziv-state/`.
+Use `status` to inspect the error and `retry` after fixing it. Failed sources
+are never silently marked `DONE`.
 
 ## Configuration
 
@@ -152,6 +177,16 @@ Instagram settings are only needed for posting:
 IG_USERNAME=your_username
 IG_PASSWORD=your_password
 ```
+
+Desktop notifications are optional and never required for a run:
+
+```dotenv
+DESKTOP_NOTIFICATIONS=true
+```
+
+When enabled, Ziv uses the available native notifier (`notify-send` on Linux
+or `osascript` on macOS). If it is unavailable, the same completion message is
+printed in the terminal and the workflow continues.
 
 Copy `.env.example` for the complete list of optional settings. The important
 performance settings are:

@@ -18,6 +18,7 @@ from .core.cleanup import delete_clip_artifacts, delete_source_artifacts
 from .core.downloader import (check_youtube_access, expand_and_download,
                                parse_links_file)
 from .core.queue import load_queue
+from .core.run_state import clear_failure, load_failures, record_failure
 from .core.source_text import load_caption_file, sidecar_caption_file
 from .core.subtitles import STYLES
 from .options import PipelineOptions
@@ -111,6 +112,8 @@ def build_parser(prog: str = "ziv") -> argparse.ArgumentParser:
                         help="List subtitle styles and exit")
     parser.add_argument("--links", nargs="?", const=str(LINKS_FILE), default=None,
                         metavar="FILE", help="Process a links file")
+    parser.add_argument("--retry-failed", action="store_true",
+                        help="Process only sources recorded as failed in the links file")
     parser.add_argument("--source", action="store_true",
                         help="Scan channels.txt, rank videos by views regardless of upload date, and append unseen winners to links.txt")
     parser.add_argument("--post-due", action="store_true",
@@ -297,15 +300,18 @@ def _record_uncertain(clip: Path, state: dict, exc: BaseException) -> None:
 
 
 def _mark_links_done(links_path: Path, done_lines: list[int],
-                     expected: dict[int, str] | None = None) -> None:
+                     expected: dict[int, str] | None = None) -> bool:
     """Mark only completed, unchanged lines; preserve the rest atomically."""
+    marked = True
     with post_queue.file_lock(links_path.with_name(links_path.name + ".lock")):
         lines = links_path.read_text(encoding="utf-8").splitlines()
         for number in done_lines:
             if not 1 <= number <= len(lines):
+                marked = False
                 continue
             line = lines[number - 1]
             if expected is not None and line.strip() != expected.get(number):
+                marked = False
                 continue  # someone edited/reordered this source while it ran
             if not line.lstrip().upper().startswith(("# DONE", "DONE ")):
                 lines[number - 1] = f"# DONE {line}"
@@ -326,6 +332,7 @@ def _mark_links_done(links_path: Path, done_lines: list[int],
                     os.close(directory)
         finally:
             temp.unlink(missing_ok=True)
+    return marked
 
 
 def _positive_env(name: str, default: int) -> int:
@@ -361,6 +368,16 @@ def ingest_links(args) -> None:
         print(f"[links] {links_path} not found. Run `ziv setup` to create it.", file=sys.stderr)
         return
     entries = parse_links_file(links_path)
+    if args.retry_failed:
+        failures = load_failures(links_path)
+        entries = [
+            entry for entry in entries
+            if str(entry["line_no"]) in failures
+            and failures[str(entry["line_no"])].get("source") == entry["url"]
+        ]
+        if not entries:
+            print("[links] No retryable failed sources found.")
+            return
     if not entries:
         print("[links] No unprocessed lines in the links file.")
         return
@@ -370,14 +387,26 @@ def ingest_links(args) -> None:
               "min": args.min_len, "max": args.max_len, "max_sources": 1}
     maximum = _make_source_limit(args)
     processed = 0
-    for entry in entries:
+    total = len(entries)
+    for source_index, entry in enumerate(entries, start=1):
         if processed >= maximum or not _make_has_capacity(args):
             break
-        print(f"\n[links] Line {entry['line_no']}: {entry['url']}")
+        print(f"\n[links] Source {source_index}/{total} — line {entry['line_no']}: "
+              f"{entry['url']}")
+        print("[links] Phase: reading source metadata")
         # One link is completed (including its queue journal) before the next
         # source is downloaded. Failed source attempts also consume the bound.
+        failure_phase = "download"
+        failure_error = "No video could be downloaded or found"
         videos, ok = expand_and_download(entry, limits)
+        failure_phase = str(entry.get("_failure_phase") or failure_phase)
+        failure_error = str(entry.get("_failure_error") or failure_error)
         if not videos:
+            if not args.dry_run:
+                record_failure(entry["line_no"], entry["url"], phase=failure_phase,
+                               error=failure_error, links_path=links_path)
+            print(f"[links] Failed source {source_index}/{total}; it remains pending.",
+                  file=sys.stderr)
             processed += 1
             continue
         succeeded = True
@@ -394,6 +423,8 @@ def ingest_links(args) -> None:
             min_len = max(3, int(video["min_len"]))
             max_len = min(REELS_MAX_DURATION, max(5, int(video["max_len"])))
             if min_len >= max_len:
+                failure_phase = "validation"
+                failure_error = "Invalid min/max clip range"
                 print(f"[links] Invalid min/max on line {entry['line_no']}", file=sys.stderr)
                 succeeded = False
                 continue
@@ -401,6 +432,9 @@ def ingest_links(args) -> None:
                         "uploader": video["uploader"], "video_id": video.get("video_id", "")}
                        if video["url"] else None)
             try:
+                failure_phase = "render"
+                failure_error = f"Pipeline failed for {video['path'].name}"
+                print(f"[links] Phase: analyzing {video['path'].name}")
                 pipeline.options.sub_style = style
                 if args.subtitle_source:
                     pipeline.options.subtitle_source = args.subtitle_source
@@ -421,22 +455,40 @@ def ingest_links(args) -> None:
                 if not args.dry_run and (not getattr(job, "complete", True)
                                          or (not job.clips and not job.manifest)):
                     succeeded = False
+                    failure_error = f"Pipeline did not complete for {video['path'].name}"
+                elif not args.dry_run:
+                    print(f"[links] Phase: rendered {len(getattr(job, 'clips', []))} clip(s)")
             except (KeyboardInterrupt, SystemExit):
                 raise
             except Exception as exc:
                 succeeded = False
+                failure_error = str(exc) or type(exc).__name__
                 print(f"[error] {video['path'].name} failed: {exc}", file=sys.stderr)
             finally:
                 gc.collect()
         if ok and succeeded and not args.dry_run:
-            _mark_links_done(links_path, [entry["line_no"]],
-                             expected={entry["line_no"]: entry["raw_line"]})
-            print(f"[links] Marked line {entry['line_no']} as DONE")
-            if not args.dry_run:
+            marked = _mark_links_done(
+                links_path, [entry["line_no"]],
+                expected={entry["line_no"]: entry["raw_line"]},
+            )
+            if marked:
+                clear_failure(entry["line_no"], links_path)
+                print(f"[links] Marked line {entry['line_no']} as DONE")
                 for video in videos:
                     removed = delete_source_artifacts(video["path"])
                     if removed:
                         print(f"[cleanup] Removed source artifacts for {video['path'].name}")
+            else:
+                record_failure(entry["line_no"], entry["url"], phase="source",
+                               error="links.txt changed while this source was running",
+                               links_path=links_path)
+                print(f"[links] Source line {entry['line_no']} changed during the run; "
+                      "it remains pending.", file=sys.stderr)
+        elif not args.dry_run:
+            record_failure(entry["line_no"], entry["url"], phase=failure_phase,
+                           error=failure_error, links_path=links_path)
+            print(f"[links] Source {source_index}/{total} failed; it remains pending.",
+                  file=sys.stderr)
     if processed >= maximum:
         print(f"[make] Source limit reached ({maximum}); remaining links are unchanged.")
 
@@ -572,15 +624,19 @@ def _main(argv: list[str] | None = None, *, prog: str = "ziv") -> int:
             print("[error] --clips must be a number or 'auto'", file=sys.stderr)
             return 1
         pipeline = Pipeline(PipelineOptions.from_args(args))
-        for video in videos:
+        total_videos = len(videos)
+        for source_index, video in enumerate(videos, start=1):
             if not _make_has_capacity(args):
                 break
+            print(f"\n[run] Source {source_index}/{total_videos}: {video}")
+            print("[run] Phase: analyzing and selecting highlights")
             job = pipeline.run(
                 video,
                 queue_state=None if args.no_upload or args.dry_run else load_queue(),
                 source_transcript=load_caption_file(sidecar_caption_file(video)),
             )
             if not args.dry_run and getattr(job, "complete", True):
+                print(f"[run] Phase: rendered {len(getattr(job, 'clips', []))} clip(s)")
                 removed = delete_source_artifacts(video)
                 if removed:
                     print(f"[cleanup] Removed source artifacts for {video.name}")

@@ -13,6 +13,11 @@ COMMANDS = (
     "links",
     "channels",
     "status",
+    "preview",
+    "retry",
+    "open",
+    "cleanup",
+    "clean",
     "make",
     "parts",
     "number-parts",
@@ -45,6 +50,7 @@ PIPELINE_FLAGS = (
     "--profile",
     "--list-styles",
     "--links",
+    "--retry-failed",
     "--source",
     "--post-due",
     "--post-now",
@@ -136,11 +142,14 @@ def candidates(words: Sequence[str], index: int) -> list[str]:
         return _matching(("dependencies", "deps", "youtube", "--help"), current)
     if command == "post":
         return _matching(("--due", "--post-due"), current)
+    if command in {"cleanup", "clean"}:
+        return _matching(("--apply", "--yes", "--posted", "--sources", "--all", "--help"), current)
     if command in {"parts", "number-parts", "number_only"}:
         if before[-1] in VALUE_FLAGS:
             return _matching(VALUE_CANDIDATES.get(before[-1], ()), current)
         return _matching(PARTS_FLAGS, current) if current.startswith("-") else []
-    if command in {"help", "setup", "links", "channels", "status", "source", "scan",
+    if command in {"help", "setup", "links", "channels", "status", "preview", "retry",
+                   "open", "source", "scan",
                    "queue", "queue-status", "styles"}:
         return []
 

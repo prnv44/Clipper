@@ -201,20 +201,22 @@ def youtube_auth_help() -> str:
             "Check the browser/profile setting, sign in to YouTube manually in "
             "that browser, close it completely, and retry. If browser storage "
             "cannot be read here, export a fresh Netscape/Mozilla cookies.txt "
-            "file and set YTDLP_COOKIES_FILE instead."
+            "file and set YTDLP_COOKIES_FILE instead. Then run `ziv doctor youtube "
+            "URL` and `ziv retry`."
         )
     if status["method"] == "file":
         return (
             "YouTube rejected YTDLP_COOKIES_FILE. Export a fresh Netscape/Mozilla "
             "cookies.txt file after a manual YouTube sign-in, keep it outside the "
-            "repository, update YTDLP_COOKIES_FILE, and retry."
+            "repository, update YTDLP_COOKIES_FILE, run `ziv doctor youtube URL`, "
+            "and retry."
         )
     return (
         "YouTube rejected an anonymous request. Sign in to YouTube manually in a "
         "browser, close it, then set YTDLP_COOKIES_FROM_BROWSER=firefox (or "
         "chrome/brave/edge) and retry. Alternatively set "
         "YTDLP_COOKIES_FILE=/absolute/path/cookies.txt to a fresh Netscape/Mozilla "
-        "export."
+        "export. Run `ziv doctor youtube URL` before `ziv retry`."
     )
 
 
@@ -473,6 +475,8 @@ def expand_and_download(entry: dict, limits: dict) -> tuple[list[dict], bool]:
             if limits.get("make_analysis", True):
                 _attach_analysis(videos)
             return videos, True
+        entry["_failure_phase"] = "source"
+        entry["_failure_error"] = f"Local video does not exist: {url}"
         print(f"[links] line {entry['line_no']}: not a link or file: {url}",
               file=sys.stderr)
         return videos, False
@@ -481,6 +485,8 @@ def expand_and_download(entry: dict, limits: dict) -> tuple[list[dict], bool]:
     try:
         import yt_dlp
     except ImportError:
+        entry["_failure_phase"] = "download"
+        entry["_failure_error"] = "yt-dlp is not installed"
         print("[links] yt-dlp not installed — cannot handle links. "
               "Run: uv sync --locked --extra all", file=sys.stderr)
         return videos, False
@@ -503,6 +509,9 @@ def expand_and_download(entry: dict, limits: dict) -> tuple[list[dict], bool]:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as exc:
+        entry["_failure_phase"] = "download"
+        entry["_failure_error"] = (str(_auth_failure(exc)) if is_youtube_auth_error(exc)
+                                    else str(exc))
         if is_youtube_auth_error(exc):
             print(f"[links] YouTube authentication failed: {_auth_failure(exc)}",
                   file=sys.stderr)
@@ -564,6 +573,9 @@ def expand_and_download(entry: dict, limits: dict) -> tuple[list[dict], bool]:
                 full = ydl.extract_info(flat.get("url") or flat.get("webpage_url") or url,
                                         download=True)
         except Exception as exc:
+            entry["_failure_phase"] = "download"
+            entry["_failure_error"] = (str(_auth_failure(exc)) if is_youtube_auth_error(exc)
+                                        else str(exc))
             if is_youtube_auth_error(exc):
                 print(f"[links] YouTube authentication failed: {_auth_failure(exc)}",
                       file=sys.stderr)
@@ -581,6 +593,8 @@ def expand_and_download(entry: dict, limits: dict) -> tuple[list[dict], bool]:
             candidates = [c for c in candidates if c.suffix.lower() != ".json"]
             file_path = candidates[0] if candidates else None
         if file_path is None or not file_path.exists():
+            entry["_failure_phase"] = "download"
+            entry["_failure_error"] = f"Downloaded but file not found for {video_id}"
             print(f"[links] Downloaded but file not found for {video_id}", file=sys.stderr)
             continue
 
