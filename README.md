@@ -117,8 +117,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 The Windows script uses `winget` to install FFmpeg when it is missing. `uv`
-provides Python 3.11 and installs every project dependency, including
-`yt-dlp`.
+uses a compatible Python 3.10+ interpreter and installs every project
+dependency, including `yt-dlp`.
 
 ### What setup does
 

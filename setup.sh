@@ -63,10 +63,8 @@ install_uv() {
 install_system_tools
 install_uv
 
-"$UV" python install 3.11
-if [ ! -x .venv/bin/python ]; then
-    "$UV" venv --python 3.11 .venv
-fi
+# uv selects the compatible Python available on this machine. The project
+# supports Python 3.10 and newer; do not force a particular minor release.
 "$UV" sync --locked --extra all
 
 exec "$ROOT/.venv/bin/python" -m ziv setup "$@"

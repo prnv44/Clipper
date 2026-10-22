@@ -48,9 +48,7 @@ if ($null -eq $uvCommand) {
     throw "uv could not be found after installation. Open a new PowerShell window and rerun setup.ps1."
 }
 
-Invoke-Checked $uvCommand @("python", "install", "3.11")
-if (-not (Test-Path -LiteralPath (Join-Path $Root ".venv\Scripts\python.exe") -PathType Leaf)) {
-    Invoke-Checked $uvCommand @("venv", "--python", "3.11", ".venv")
-}
+# uv selects the compatible Python available on this machine. The project
+# supports Python 3.10 and newer; do not force a particular minor release.
 Invoke-Checked $uvCommand @("sync", "--locked", "--extra", "all")
 Invoke-Checked (Join-Path $Root ".venv\Scripts\python.exe") (@("-m", "ziv", "setup") + $SetupArgs)
