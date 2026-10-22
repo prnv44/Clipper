@@ -31,6 +31,7 @@ def _make(args: Sequence[str]) -> int:
 
     channel_entries = parse_channels_file(CHANNELS_FILE)
     link_entries = parse_links_file(LINKS_FILE)
+    print("[ziv] Make run: channels.txt -> links.txt -> output/ (no posting).")
     if not channel_entries and not link_entries:
         print("[ziv] Nothing to make yet.")
         print("[ziv] 1. Run `ziv setup` if you have not done so.")
@@ -39,6 +40,7 @@ def _make(args: Sequence[str]) -> int:
         return 1
 
     if channel_entries:
+        print(f"[ziv] Scanning {len(channel_entries)} configured channel(s)...")
         try:
             import yt_dlp  # noqa: F401 - discovery requires the optional package
         except ImportError:
@@ -53,10 +55,35 @@ def _make(args: Sequence[str]) -> int:
             return result
 
     # Discovery appends to links.txt, so always parse it again before making.
-    if parse_links_file(LINKS_FILE):
+    pending_links = parse_links_file(LINKS_FILE)
+    if pending_links:
+        print(f"[ziv] Processing {len(pending_links)} pending link(s)...")
         return _pipeline(["--links", "--no-post"])
 
-    print("[ziv] Discovery found no new videos to make.")
+    print("[ziv] No pending links found in links.txt.")
+    return 0
+
+
+def _run_links_file() -> int:
+    """Process links.txt by default without scanning channels or posting."""
+    from .core.downloader import parse_links_file
+
+    print("[ziv] Default run: links.txt -> output/ (no channel scan, no posting).")
+    pending_links = parse_links_file(LINKS_FILE)
+    if pending_links:
+        print(f"[ziv] Processing {len(pending_links)} pending link(s)...")
+        return _pipeline(["--links", "--no-post"])
+
+    if not LINKS_FILE.exists():
+        print("[ziv] links.txt does not exist yet. Run `ziv setup` to create it.")
+        return 1
+    print("[ziv] No pending links found in links.txt.")
+    print("[ziv] Add a video URL or local path, then run `ziv` again.")
+    if CHANNELS_FILE.exists():
+        from .core.channels import parse_channels_file
+
+        if parse_channels_file(CHANNELS_FILE):
+            print("[ziv] To discover channel videos first, run `ziv make`.")
     return 0
 
 
@@ -182,6 +209,7 @@ def _file_source_command(command: str, args: Sequence[str] = ()) -> int:
 def _help() -> int:
     pipeline_cli.build_parser(prog="ziv").print_help()
     print("\nZiv commands:")
+    print("  ziv (no args)             process pending entries from links.txt")
     print("  ziv links                  show active entries from links.txt")
     print("  ziv channels               show active entries from channels.txt")
     print("  ziv completion SHELL      print native bash/zsh/fish/PowerShell completion")
@@ -196,7 +224,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run Ziv's normal command-line workflows."""
     args = _raw_args(argv)
     if not args:
-        return _pipeline([])
+        return _run_links_file()
 
     command, rest = args[0], args[1:]
     if command == "help" or args == ["--help"]:

@@ -91,7 +91,8 @@ Linux/macOS:
 ./ziv.sh doctor       # check the local installation
 ./ziv.sh links        # show active links.txt entries
 ./ziv.sh channels     # show active channels.txt entries
-./ziv.sh make         # discover channel videos and process pending links
+./ziv.sh              # process pending links.txt entries
+./ziv.sh make         # discover channels, then process links.txt
 ./ziv.sh parts video.mp4
 ./ziv.sh post         # post the queue when you are ready
 ```
