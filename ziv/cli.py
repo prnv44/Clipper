@@ -1,11 +1,15 @@
 """Public Ziv command and workflow dispatch."""
 from __future__ import annotations
 
+import importlib.util
+import os
+import shutil
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from . import pipeline_cli
-from .config import CHANNELS_FILE, LINKS_FILE
+from .config import CHANNELS_FILE, GEMINI_API_KEY, LINKS_FILE, OUTPUT_DIR, PROJECT_ROOT
 
 
 def _raw_args(argv: Sequence[str] | None) -> list[str]:
@@ -16,6 +20,76 @@ def _pipeline(args: Sequence[str], *, prog: str = "ziv") -> int:
     return pipeline_cli.main(list(args), prog=prog)
 
 
+def _preflight(*, needs_download: bool = False) -> int:
+    """Fail early with one actionable message before expensive work starts."""
+    failures: list[str] = []
+    for executable in ("ffmpeg", "ffprobe"):
+        if shutil.which(executable) is None:
+            failures.append(f"{executable} is missing; run ./setup.sh")
+    if importlib.util.find_spec("google.genai") is None:
+        failures.append("google-genai is missing; run ./setup.sh")
+    if not os.environ.get("GEMINI_API_KEY", GEMINI_API_KEY).strip():
+        failures.append("GEMINI_API_KEY is missing; set it in .env")
+    if needs_download and importlib.util.find_spec("yt_dlp") is None:
+        failures.append("yt-dlp is missing for URL downloads; run ./setup.sh")
+    output_parent = OUTPUT_DIR if OUTPUT_DIR.exists() else OUTPUT_DIR.parent
+    if not output_parent.exists() or not os.access(output_parent, os.W_OK):
+        failures.append(f"output directory is not writable: {OUTPUT_DIR}")
+    if failures:
+        print("[ziv] Preflight failed:", file=sys.stderr)
+        for failure in failures:
+            print(f"  - {failure}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def _link_file_stats() -> tuple[int, int, int]:
+    """Return pending links, completed lines, and generated clip count."""
+    from .core.downloader import parse_links_file
+
+    pending = len(parse_links_file(LINKS_FILE))
+    done = 0
+    if LINKS_FILE.exists():
+        try:
+            done = sum(
+                1 for raw in LINKS_FILE.read_text(encoding="utf-8").splitlines()
+                if raw.strip().upper().startswith("DONE ")
+                or "# DONE" in raw.upper()
+            )
+        except OSError:
+            pass
+    clips = 0
+    if OUTPUT_DIR.exists():
+        try:
+            clips = sum(1 for path in OUTPUT_DIR.rglob("*.mp4") if path.is_file())
+        except OSError:
+            pass
+    return pending, done, clips
+
+
+def _process_links_file() -> int:
+    """Process links.txt and print a compact completion summary."""
+    from .core.downloader import parse_links_file
+
+    _, done_before, clips_before = _link_file_stats()
+    needs_download = any(
+        entry.get("url", "").lower().startswith(("http://", "https://"))
+        for entry in parse_links_file(LINKS_FILE)
+    )
+    preflight = _preflight(needs_download=needs_download)
+    if preflight:
+        return preflight
+    result = _pipeline(["--links", "--no-post"])
+    pending_after, done_after, clips_after = _link_file_stats()
+    print("[ziv] Run complete" if result == 0 else "[ziv] Run finished with errors")
+    print(f"[ziv] Links completed this run: {max(0, done_after - done_before)}")
+    print(f"[ziv] Clips created this run: {max(0, clips_after - clips_before)}")
+    print(f"[ziv] Pending links: {pending_after}")
+    print(f"[ziv] Output: {OUTPUT_DIR}")
+    print("[ziv] Instagram posts: 0 (posting is a separate command)")
+    return result
+
+
 def _make(args: Sequence[str]) -> int:
     """Run the simple source-to-queue flow behind ``ziv make``.
 
@@ -24,6 +98,9 @@ def _make(args: Sequence[str]) -> int:
     retain the normal flag-based pipeline.
     """
     if args:
+        preflight = _preflight()
+        if preflight:
+            return preflight
         return _pipeline(["--no-post", *args])
 
     from .core.channels import parse_channels_file
@@ -41,6 +118,9 @@ def _make(args: Sequence[str]) -> int:
 
     if channel_entries:
         print(f"[ziv] Scanning {len(channel_entries)} configured channel(s)...")
+        preflight = _preflight(needs_download=True)
+        if preflight:
+            return preflight
         try:
             import yt_dlp  # noqa: F401 - discovery requires the optional package
         except ImportError:
@@ -58,7 +138,7 @@ def _make(args: Sequence[str]) -> int:
     pending_links = parse_links_file(LINKS_FILE)
     if pending_links:
         print(f"[ziv] Processing {len(pending_links)} pending link(s)...")
-        return _pipeline(["--links", "--no-post"])
+        return _process_links_file()
 
     print("[ziv] No pending links found in links.txt.")
     return 0
@@ -72,7 +152,7 @@ def _run_links_file() -> int:
     pending_links = parse_links_file(LINKS_FILE)
     if pending_links:
         print(f"[ziv] Processing {len(pending_links)} pending link(s)...")
-        return _pipeline(["--links", "--no-post"])
+        return _process_links_file()
 
     if not LINKS_FILE.exists():
         print("[ziv] links.txt does not exist yet. Run `ziv setup` to create it.")
@@ -150,6 +230,70 @@ def _source_file(kind: str) -> int:
     return 0
 
 
+def _status() -> int:
+    """Print one compact, read-only overview of the local Ziv workspace."""
+    from .core.channels import parse_channels_file
+    from .core.downloader import parse_links_file
+    from .core.queue import load_queue, review_holds, status_line
+    from .doctor import dependency_checks
+
+    pending = parse_links_file(LINKS_FILE)
+    done = 0
+    if LINKS_FILE.exists():
+        try:
+            done = sum(
+                1 for raw in LINKS_FILE.read_text(encoding="utf-8").splitlines()
+                if raw.strip().upper().startswith("DONE ")
+                or "# DONE" in raw.upper()
+            )
+        except OSError:
+            done = 0
+    channels = parse_channels_file(CHANNELS_FILE)
+
+    print("Ziv status")
+    print("\nSources")
+    print(f"  links.txt:    {len(pending)} pending, {done} completed")
+    print(f"  channels.txt: {len(channels)} configured")
+
+    print("\nRuntime")
+    checks = {check.name: check for check in dependency_checks()}
+    for name in ("Python >= 3.10", "ffmpeg", "ffprobe", "yt_dlp",
+                 "GEMINI_API_KEY", "Instagram credentials"):
+        check = checks.get(name)
+        if check is None:
+            continue
+        state = "OK" if check.ok else ("WARN" if not check.required else "FAIL")
+        print(f"  {state:<4} {name}: {check.detail}")
+
+    try:
+        queue = load_queue()
+        print("\nQueue")
+        print(f"  pending posts: {len(queue['pending'])}")
+        print(f"  posted:        {len(queue['posted'])}")
+        print(f"  failed:        {len(queue['failed'])}")
+        print(f"  schedule:      {status_line(queue)}")
+        if review_holds(queue):
+            print("  review:        BLOCKED - inspect Instagram before retrying")
+    except Exception as exc:
+        print(f"\nQueue\n  FAIL queue unavailable: {exc}")
+
+    clips = []
+    if OUTPUT_DIR.exists():
+        try:
+            clips = [path for path in OUTPUT_DIR.rglob("*.mp4") if path.is_file()]
+        except OSError:
+            clips = []
+    print("\nOutput")
+    print(f"  directory:     {OUTPUT_DIR}")
+    print(f"  clips:         {len(clips)}")
+    if clips:
+        latest = max(clips, key=lambda path: path.stat().st_mtime)
+        print(f"  latest:        {latest}")
+    state_dir = Path(os.environ.get("STATE_DIR") or PROJECT_ROOT / ".ziv-state")
+    print(f"  state:         {state_dir}")
+    return 0
+
+
 def _doctor(args: Sequence[str]) -> int:
     if not args or args[0] in {"dependencies", "deps"}:
         from .doctor import run_doctor
@@ -194,6 +338,8 @@ def _file_source_command(command: str, args: Sequence[str] = ()) -> int:
         return _source_file("link")
     if command == "channels":
         return _source_file("channel")
+    if command == "status":
+        return _status()
     if command == "doctor":
         return _doctor(args)
     if command in {"add", "catalog", "sources", "import", "run-source"}:
@@ -212,6 +358,7 @@ def _help() -> int:
     print("  ziv (no args)             process pending entries from links.txt")
     print("  ziv links                  show active entries from links.txt")
     print("  ziv channels               show active entries from channels.txt")
+    print("  ziv status                 show sources, runtime, queue, and output")
     print("  ziv completion SHELL      print native bash/zsh/fish/PowerShell completion")
     print("  ziv doctor                check local dependencies and install hints")
     print("  ziv doctor youtube [URL]  validate cookies or probe YouTube")

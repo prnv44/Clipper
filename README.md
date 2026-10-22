@@ -38,6 +38,11 @@ Set-ExecutionPolicy -Scope Process Bypass
 project dependencies. Python 3.10 or newer is supported; setup does not force
 a particular minor version.
 
+The normal setup wizard asks only for the Gemini key, optional YouTube
+authentication, and optional Instagram credentials. Adaptive hardware defaults
+fill in the rest. Use `./ziv.sh setup --advanced` or
+`.\ziv.ps1 setup --advanced` when you want to tune every setting.
+
 The wizard saves local settings to `.env` and creates `channels.txt` and
 `links.txt` if they are missing. Existing source files are never overwritten.
 
@@ -89,6 +94,7 @@ Linux/macOS:
 
 ```bash
 ./ziv.sh doctor       # check the local installation
+./ziv.sh status       # show sources, runtime, queue, and output
 ./ziv.sh links        # show active links.txt entries
 ./ziv.sh channels     # show active channels.txt entries
 ./ziv.sh              # process pending links.txt entries
@@ -101,6 +107,7 @@ Windows PowerShell:
 
 ```powershell
 .\ziv.ps1 doctor
+.\ziv.ps1 status
 .\ziv.ps1 links
 .\ziv.ps1 channels
 .\ziv.ps1 make

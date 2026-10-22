@@ -12,6 +12,7 @@ COMMANDS = (
     "doctor",
     "links",
     "channels",
+    "status",
     "make",
     "parts",
     "number-parts",
@@ -139,7 +140,7 @@ def candidates(words: Sequence[str], index: int) -> list[str]:
         if before[-1] in VALUE_FLAGS:
             return _matching(VALUE_CANDIDATES.get(before[-1], ()), current)
         return _matching(PARTS_FLAGS, current) if current.startswith("-") else []
-    if command in {"help", "setup", "links", "channels", "source", "scan",
+    if command in {"help", "setup", "links", "channels", "status", "source", "scan",
                    "queue", "queue-status", "styles"}:
         return []
 

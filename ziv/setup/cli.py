@@ -46,6 +46,10 @@ def build_parser(prog: str = "ziv setup") -> argparse.ArgumentParser:
         description="Configure Ziv locally using a hardware-aware recommended profile.",
     )
     parser.add_argument("--redo", action="store_true", help="run the wizard again")
+    parser.add_argument(
+        "--advanced", action="store_true",
+        help="show every tuning option instead of using adaptive defaults",
+    )
     parser.add_argument("--show", action="store_true", help="show saved settings with secrets hidden")
     parser.add_argument(
         "--non-interactive", "--yes", dest="non_interactive", action="store_true",
@@ -197,6 +201,63 @@ def _current_auth(values: dict[str, str]) -> str:
 
 
 def _interactive_values(existing: dict[str, str], profile: SystemProfile) -> dict[str, str]:
+    """Run the short first-run wizard; adaptive defaults cover the rest."""
+    values = default_settings(config.PROJECT_ROOT, profile)
+    values.update(existing)
+    prompts = PromptSession()
+
+    values["GEMINI_API_KEY"] = prompts.secret(
+        "Gemini API key (required; hidden)", values.get("GEMINI_API_KEY", ""))
+
+    existing_browser_value = values.get("YTDLP_COOKIES_FROM_BROWSER", "")
+    existing_cookie_file = values.get("YTDLP_COOKIES_FILE", "")
+    auth = prompts.choice("YouTube authentication", ("anonymous", "browser", "file"),
+                          _current_auth(values))
+    values["YTDLP_COOKIES_FROM_BROWSER"] = ""
+    values["YTDLP_COOKIES_FILE"] = ""
+    if auth == "browser":
+        current_browser = existing_browser_value.split("+", 1)[0].split(":", 1)[0] \
+            if existing_browser_value else "firefox"
+        browser = prompts.choice("Browser", YOUTUBE_BROWSERS, current_browser.lower())
+        current_profile = ""
+        if ":" in existing_browser_value:
+            current_profile = existing_browser_value.split(":", 1)[1].split("::", 1)[0]
+        browser_profile = prompts.text("Browser profile (optional)", current_profile)
+        values["YTDLP_COOKIES_FROM_BROWSER"] = (
+            f"{browser}:{browser_profile}" if browser_profile else browser
+        )
+    elif auth == "file":
+        while True:
+            candidate = prompts.text("Netscape/Mozilla cookie file path", existing_cookie_file)
+            candidate = path_value(candidate, config.PROJECT_ROOT)
+            valid, reason = validate_cookie_file_metadata(candidate)
+            if valid:
+                values["YTDLP_COOKIES_FILE"] = candidate
+                break
+            print(f"Cookie file metadata check failed: {reason}. The file contents were not read.")
+            existing_cookie_file = ""
+
+    configure_instagram = prompts.boolean(
+        "Configure optional Instagram credentials",
+        bool(values.get("IG_USERNAME") and values.get("IG_PASSWORD")),
+    )
+    if configure_instagram:
+        values["IG_USERNAME"] = prompts.text("Instagram username", values.get("IG_USERNAME", ""))
+        values["IG_PASSWORD"] = prompts.secret(
+            "Instagram password (hidden)", values.get("IG_PASSWORD", ""))
+        values["IG_2FA_CODE"] = prompts.secret(
+            "Instagram 2FA code (optional, hidden)", values.get("IG_2FA_CODE", ""))
+    else:
+        values["IG_USERNAME"] = values["IG_PASSWORD"] = values["IG_2FA_CODE"] = ""
+
+    values["ZIV_SETUP_COMPLETE"] = "1"
+    values["ZIV_SETUP_VERSION"] = "1"
+    return values
+
+
+def _interactive_advanced_values(
+    existing: dict[str, str], profile: SystemProfile,
+) -> dict[str, str]:
     values = default_settings(config.PROJECT_ROOT, profile)
     values.update(existing)
     prompts = PromptSession()
@@ -373,7 +434,8 @@ def _show(path: Path) -> int:
 def main(argv: Sequence[str] | None = None, *, prog: str = "ziv setup") -> int:
     parser = build_parser(prog)
     args = parser.parse_args(list(argv) if argv is not None else None)
-    if args.show and (args.redo or args.non_interactive or args.overrides or args.profile):
+    if args.show and (args.redo or args.advanced or args.non_interactive
+                      or args.overrides or args.profile):
         parser.error("--show cannot be combined with setup-writing options")
 
     path = Path(config.ENV_FILE)
@@ -382,7 +444,8 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "ziv setup") -> int:
         if args.show:
             return _show(path)
         if existing.get("ZIV_SETUP_COMPLETE") == "1" and not (
-            args.redo or args.non_interactive or args.overrides or args.profile
+            args.redo or args.advanced or args.non_interactive
+            or args.overrides or args.profile
         ):
             initialize_source_files(existing)
             print("Ziv is already configured. Use `ziv setup --redo` to run setup again.")
@@ -393,7 +456,10 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "ziv setup") -> int:
         if args.non_interactive or args.overrides or args.profile:
             values = _noninteractive_values(existing, profile, args)
         else:
-            values = _interactive_values(existing, profile)
+            values = (
+                _interactive_advanced_values(existing, profile)
+                if args.advanced else _interactive_values(existing, profile)
+            )
             _normalise_bool_settings(values)
             _validate_values(values)
 

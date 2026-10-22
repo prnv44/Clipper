@@ -24,6 +24,7 @@ def test_completion_dispatch_prints_script_without_starting_workflows(monkeypatc
 
 def test_completion_candidates_cover_commands_and_value_choices() -> None:
     assert "completion" in completion.candidates(["ziv", ""], 1)
+    assert "status" in completion.candidates(["ziv", ""], 1)
     assert "--profile" in completion.candidates(["ziv", "make", "--"], 2)
     assert completion.candidates(["ziv", "make", "--auto-mode", ""], 3) == [
         "content", "duration",
